@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JS Editor with Console</title>
+
+    <!-- CodeMirror 5 -->
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/theme/material-darker.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.15/mode/javascript/javascript.min.js"></script>
+
+    <!-- Prettier -->
+    <script src="https://unpkg.com/prettier@2.8.8/standalone.js"></script>
+    <script src="https://unpkg.com/prettier@2.8.8/parser-babel.js"></script>
+
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        font-family: "Roboto Mono", monospace;
+        background: #1e1e1e;
+        color: #d4d4d4;
+      }
+      .container {
+        display: flex;
+        height: 100vh;
+        width: 100vw;
+        overflow: hidden;
+      }
+      .editor-container {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        position: relative;
+      }
+      .editor-toolbar {
+        background: #252526;
+        padding: 8px;
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        border-bottom: 1px solid #333;
+      }
+      .btn {
+        padding: 6px 12px;
+        border-radius: 4px;
+        border: none;
+        cursor: pointer;
+        font-family: "Roboto Mono", monospace;
+        font-size: 15px;
+        transition: 0.2s;
+      }
+      .btn-run {
+        background: #0e639c;
+        color: #fff;
+      }
+      .btn-run:hover {
+        background: #1177bb;
+      }
+      .btn-format {
+        background: #2d7d46;
+        color: #fff;
+      }
+      .btn-format:hover {
+        background: #3a9b5c;
+      }
+      .btn-clear {
+        background: #3a3d41;
+        color: #fff;
+      }
+      .btn-clear:hover {
+        background: #4a4d51;
+      }
+      .editor-wrapper {
+        flex: 1;
+      }
+      .console-section {
+        width: 40%;
+        min-width: 200px;
+        display: flex;
+        flex-direction: column;
+        background: #1e1e1e;
+      }
+      .console-header {
+        background: #252526;
+        color: #d4d4d4;
+        padding: 13px;
+        font-size: 16px;
+        font-weight: bold;
+        border-bottom: 1px solid #333;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .console-content {
+        padding: 10px;
+        font-size: 16px;
+        line-height: 18px;
+        overflow: auto;
+        flex: 1;
+      }
+      .console-line {
+        margin-bottom: 5px;
+        color: #4ec9b0;
+        font-family: "Roboto Mono", monospace;
+      }
+      .console-error {
+        color: #f48771;
+      }
+      .console-warn {
+        color: #dcdcaa;
+      }
+      .clear-btn {
+        background: transparent;
+        border: 1px solid #555;
+        color: #d4d4d4;
+        padding: 4px 10px;
+        border-radius: 3px;
+        cursor: pointer;
+        font-size: 11px;
+      }
+      .clear-btn:hover {
+        background: #3a3d41;
+      }
+      .drag-bar {
+        width: 5px;
+        cursor: col-resize;
+        background: #555;
+      }
+      .CodeMirror {
+        height: 100%;
+        font-size: 17px;
+      }
+
+      .shortcut-hint {
+        color: #cccccc;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="editor-container">
+        <div class="editor-toolbar">
+          <button class="btn btn-run" onclick="runCode()">
+            ▶ Run <span class="shortcut-hint">(Ctrl + Enter)</span>
+          </button>
+          <button class="btn btn-format" onclick="formatCode()">
+            ✨ Format <span class="shortcut-hint">(Ctrl + `)</span>
+          </button>
+          <button class="btn btn-clear" onclick="clearConsole()">
+            Clear Console
+          </button>
+          <button class="btn btn-clear" id="stopBtn" onclick="stopCode()">
+            ■ Stop
+          </button>
+        </div>
+        <div class="editor-wrapper">
+          <textarea id="editor"></textarea>
+        </div>
+      </div>
+      <div class="drag-bar" id="dragBar"></div>
+      <div class="console-section">
+        <div class="console-header">
+          Console
+          <!-- <button class="clear-btn" onclick="clearConsole()">Clear</button> -->
+        </div>
+        <div class="console-content" id="consoleContent">
+          <div class="console-line">Ready to execute...</div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Initialize CodeMirror
+      const editor = CodeMirror.fromTextArea(
+        document.getElementById("editor"),
+        {
+          mode: "javascript",
+          theme: "material-darker",
+          lineNumbers: true,
+          tabSize: 4,
+          indentUnit: 4,
+          matchBrackets: true,
+          autoCloseBrackets: true,
+        }
+      );
+
+      // Set default content
+      editor.setValue(`// Write JS code here
+function greet(name) {
+  return \`Hello, \${name}!\`;
+}
+
+console.log(greet("World"));
+const numbers = [1,2,3,4,5];
+console.log(numbers.map(n => n*2));`);
+
+      const consoleContent = document.getElementById("consoleContent");
+
+      // Run JS code
+      async function runCode() {
+        clearConsole();
+        const code = editor.getValue();
+        const origLog = console.log;
+        const origError = console.error;
+        const origWarn = console.warn;
+
+        console.log = (...args) => {
+          const line = document.createElement("div");
+          line.className = "console-line";
+          line.textContent = args
+            .map((a) =>
+              typeof a === "object" ? JSON.stringify(a, null, 2) : String(a)
+            )
+            .join(" ");
+          consoleContent.appendChild(line);
+          consoleContent.scrollTop = consoleContent.scrollHeight;
+        };
+        console.error = (...args) => {
+          const line = document.createElement("div");
+          line.className = "console-line console-error";
+          line.textContent = "❌ " + args.join(" ");
+          consoleContent.appendChild(line);
+          consoleContent.scrollTop = consoleContent.scrollHeight;
+        };
+        console.warn = (...args) => {
+          const line = document.createElement("div");
+          line.className = "console-line console-warn";
+          line.textContent = "⚠️ " + args.join(" ");
+          consoleContent.appendChild(line);
+          consoleContent.scrollTop = consoleContent.scrollHeight;
+        };
+
+        try {
+          // Wrap user code in an async IIFE
+          await (async () => {
+            eval(code);
+          })();
+        } catch (err) {
+          console.error(err.message);
+        }
+
+        // Restore console AFTER a small delay to allow async logs
+        setTimeout(() => {
+          console.log = origLog;
+          console.error = origError;
+          console.warn = origWarn;
+        }, 10000); // 5 seconds should be enough for most async operations
+      }
+
+      // Stop code
+      function stopCode() {
+        if (worker) {
+          worker.terminate();
+          worker = null;
+          statusText.textContent = "";
+          const line = document.createElement("div");
+          line.className = "console-line console-warn";
+          line.textContent = "⚠️ Execution stopped by user.";
+          consoleContent.appendChild(line);
+          consoleContent.scrollTop = consoleContent.scrollHeight;
+        }
+      }
+
+      // Clear console
+      function clearConsole() {
+        consoleContent.innerHTML = "";
+      }
+
+      // Format code with Prettier
+      function formatCode() {
+        try {
+          const code = editor.getValue();
+          const formatted = prettier.format(code, {
+            parser: "babel",
+            plugins: [prettierPlugins.babel],
+            tabWidth: 4,
+            useTabs: false,
+          });
+          editor.setValue(formatted);
+          const line = document.createElement("div");
+          line.className = "console-line";
+          line.textContent = "✓ Code formatted!";
+          consoleContent.appendChild(line);
+          consoleContent.scrollTop = consoleContent.scrollHeight;
+        } catch (err) {
+          const line = document.createElement("div");
+          line.className = "console-line console-error";
+          line.textContent = "❌ " + err.message;
+          consoleContent.appendChild(line);
+          consoleContent.scrollTop = consoleContent.scrollHeight;
+        }
+      }
+
+      // Ctrl+Enter to run code
+      editor.on("keydown", function (cm, event) {
+        if (event.ctrlKey && event.key === "Enter") {
+          runCode();
+          event.preventDefault();
+        }
+      });
+
+      // Ctrl+` to format code
+      editor.on("keydown", function (cm, event) {
+        if (event.ctrlKey && event.key === "`") {
+          formatCode();
+          event.preventDefault();
+        }
+      });
+
+      // Drag resize
+      const dragBar = document.getElementById("dragBar");
+      const editorContainer = document.querySelector(".editor-container");
+      let isDragging = false;
+      dragBar.addEventListener("mousedown", () => {
+        isDragging = true;
+        document.body.style.cursor = "col-resize";
+      });
+      document.addEventListener("mouseup", () => {
+        isDragging = false;
+        document.body.style.cursor = "default";
+      });
+      document.addEventListener("mousemove", (e) => {
+        if (!isDragging) return;
+        let newWidth = e.clientX;
+        if (newWidth < 200) newWidth = 200;
+        if (newWidth > window.innerWidth - 200)
+          newWidth = window.innerWidth - 200;
+        editorContainer.style.flex = `0 0 ${newWidth}px`;
+        editor.refresh(); // Refresh editor to adjust layout
+      });
+    </script>
+  </body>
+</html>
